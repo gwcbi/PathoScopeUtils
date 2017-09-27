@@ -10,33 +10,33 @@ suppressWarnings(
     })
 )
 
-
-analyze_contig_counts <- function(infiles,
-                                  weight.cutoff=1e-2,
-                                  pct.cutoff=0
-){
-    snames <- names(infiles)
-    if(is.null(snames)) snames <- paste0('S', 1:length(infiles))
-    names(infiles) <- snames
-    
-    for(f in infiles) {
-        refs <- get_references(f)
-        if(nrow(refs)>0) break
-    }
-    cts.all <- contig_counts(infiles, refs)
-    
-    p1 <- cts.all %>%
+plot_contig_scatter <- function(cts.all) {
+    cts.all %>%
         ggplot2::ggplot(aes(len, mapped, color=sample, group=sample)) +
         geom_point(alpha=0.6) +
         geom_smooth(method="rlm", aes(color=sample), se=F, 
                     alpha=0.4, linetype=2, size=0.5) +
         xlab("Contig length") + ylab("# mapped") +
         ggtitle("Mapped v. length")
-    
+}
+
+model_contig_counts <- function(cts.all, refs,
+                                weight.cutoff=1e-2,
+                                pct.cutoff=0
+){
     # Make spread data frame
     cts.sp <- cts.all %>%
         dplyr::select(chrom, len, display, mapped, sample) %>%
         tidyr::spread(sample, mapped)
+    
+    snames <- names(cts.sp)[4:ncol(cts.sp)]
+    
+    if(nrow(cts.sp)==1)
+        return(list(
+            out.high=data.frame(),
+            out.low=data.frame(), 
+            params=data.frame()
+        ))
     
     # Fit robust regression
     models <- lapply(snames, function(sn){
@@ -61,7 +61,7 @@ analyze_contig_counts <- function(infiles,
     }) %>% do.call(rbind, .) %>%
     data.frame(., row.names=snames)
     names(params) <- c('(Intercept)', 'len', 'fit', 'lwr', 'upr')
-
+    
     # Outliers removed
     cts.noout <- cts.sp %>%
         dplyr::filter(!chrom %in% out.high$chrom)
@@ -70,7 +70,6 @@ analyze_contig_counts <- function(infiles,
     list(
         out.high=out.high,
         out.low=out.low,
-        scatter.plot=p1,
         params=params
     )
 }
@@ -85,14 +84,26 @@ if(!interactive()) {
     names(infiles) <- gsub('.bam$','',basename(infiles))
     outdir <- dirname(infiles[1])
     
-    ret <- analyze_contig_counts(infiles)
+    # Get references information
+    for(f in infiles) {
+        refs <- get_references(f)
+        if(nrow(refs)>0) break
+    }
+    
+    # Get contig counts
+    cts.all <- contig_counts(infiles, refs)
     
     # Output scatter plot with regression lines
-    suppressMessages(
-        ggsave(file.path(outdir, 'out.scatter.pdf'), ret[['scatter.plot']],
+    suppressWarnings(suppressMessages({
+        p <- plot_contig_scatter(cts.all)        
+        ggsave(file.path(outdir, 'out.scatter.pdf'), p,
                width=7, height=7, paper='USr')
-    )
+        
+    }))
     
+    # Model contig counts
+    ret <- model_contig_counts(cts.all, refs)
+
     # Output tables with outliers
     if(nrow(ret[["out.high"]]) == 0 & nrow(ret[["out.low"]]) == 0) {
         cat("Contig counts match with expectation 👍🏼\n")
@@ -114,11 +125,14 @@ if(!interactive()) {
                         quote=F, row.names=F, sep='\t')
         }
     }
-    write.table(ret[["params"]], file.path(outdir, 'out.model_contigs.txt'),
-                quote=F, row.names=T, sep='\t')
+    if(nrow(ret[['params']])>0) {
+        write.table(ret[["params"]], file.path(outdir, 'out.model_contigs.txt'),
+                    quote=F, row.names=T, sep='\t')
+    }
+
 } else {
     source('util.R')
-    infiles <- Sys.glob("~/Projects/tmp/otu_analysis/Pseudomonas_aeruginosa_str_C_1433/*.bam")
+    infiles <- Sys.glob("~/Projects/tmp/otu_analysis/Tetrasphaera_japonica_T1_X7/*.bam")
     infiles <- infiles[order(infiles)]
     names(infiles) <- gsub('.bam$','',basename(infiles))
     outdir <- dirname(infiles[1])
