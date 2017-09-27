@@ -69,25 +69,35 @@ python top_otus.py --with_tax */pathoid-sam-report.withtax.tsv > top_otus.withta
 
 #### Output:
 
-+ `otu_analysis/<tax_name>/<sample>.bam` - Sorted BAM for each OTU and sample
++ `otu_analysis/<tax_name>/orig/<sample>.bam` - Sorted BAM for each OTU and sample
 
 ```bash
 python split_otu.py --taxfile top_otus.withtax.txt */updated_outalign.sorted.bam
 ```
 
+Relocate these files to `otu_analysis/<tax_name>/orig` directory. (The final BAM files will be in the parent directory).
+
+```bash
+for d in otu_analysis/*; do
+    mkdir -p $d/orig
+    mv $d/*.bam $d/orig
+    mv $d/*.bam.bai $d/orig
+done
+```
+
+
 ## Step 5: Fix SAM flags
 
-Sort by read name (`samtools sort -n`). Ensure that each read has only one "primary" alignment and the other alignments are secondary, (`fix_sam_flags.py`). Remove the secondary alignments (`samtools view -F 0x100`) and sort by coordinate order.
+PathoScope output does not have the correct flags set for secondary alignments. In order to have better read count and coverage estimation, we want to remove secondary alignments. We achieve this here with the following shell pipeline: **1)** Sort by read name (`samtools sort -n`). **2)** Ensure that each read has only one "primary" alignment and the other alignments are secondary (`fix_sam_flags.py`). **3)** Remove the secondary alignments (`samtools view -F 0x100`) and **4)** sort by coordinate order (`samtools sort`).
 
 #### Output:
 
-+ `otu_analysis/<tax_name>/fixed/<sample>.bam` - Sorted BAM with primary alignments only for each OTU and sample.
++ `otu_analysis/<tax_name>/<sample>.bam` - Sorted BAM with primary alignments only for each OTU and sample.
 
 
 ```bash
-for f in otu_analysis/*/*.bam; do
-    [[ ! -d $(dirname $f)/fixed ]] && mkdir -p $(dirname $f)/fixed
-    n=$(dirname $f)/fixed/$(basename $f)
+for f in otu_analysis/*/orig/*.bam; do
+    n=$(dirname $(dirname $f))/$(basename $f)
     samtools sort -n $f |\
         samtools view -h |\
         python fix_sam_flags.py |\
@@ -97,4 +107,12 @@ for f in otu_analysis/*/*.bam; do
     samtools index $n
     echo $n
 done
+```
+
+## Step 6: Visualize contig counts
+
+
+```bash
+Rscript Rscripts/plot_contig_counts.R
+Rscript Rscripts/analyze_contig_counts.R 
 ```
