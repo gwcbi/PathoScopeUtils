@@ -35,22 +35,40 @@ analyze_contig_counts <- function(infiles,
         dplyr::select(chrom, len, display, mapped, sample) %>%
         tidyr::spread(sample, mapped)
     
-    # Detect outliers for each sample
-    outliers <- lapply(snames, function(sn){
+    # Fit robust regression
+    models <- lapply(snames, function(sn){
         f <- as.formula(paste0('`', sn, '` ~ len'))
-        fit.summary <- summary(fit <- rlm(f , cts.sp))
+        rlm(f , cts.sp)
+    })
+    
+    # Detect outliers for each sample
+    outliers <- lapply(models, function(fit){
         sign((fit$w < weight.cutoff) * fit$residuals)
     }) %>% do.call(cbind, .)
-    
+
     # Possible outliers
     nsamp.cutoff <- pct.cutoff * length(snames)
     out.high <- cts.sp[rowSums(outliers==1) > nsamp.cutoff,]
     out.low <- cts.sp[rowSums(outliers==-1) > nsamp.cutoff,]
     
+    # Model params
+    params <- lapply(models, function(fit){
+        predicted <- predict(fit, data.frame(len=sum(refs$len)), interval='confidence')
+        c(fit$coefficients, predicted)
+    }) %>% do.call(rbind, .) %>%
+    data.frame(., row.names=snames)
+    names(params) <- c('(Intercept)', 'len', 'fit', 'lwr', 'upr')
+
+    # Outliers removed
+    cts.noout <- cts.sp %>%
+        dplyr::filter(!chrom %in% out.high$chrom)
+    params$out.rm <- sapply(snames, function(n) sum(cts.noout[,n]))
+
     list(
         out.high=out.high,
         out.low=out.low,
-        scatter.plot=p1
+        scatter.plot=p1,
+        params=params
     )
 }
 
@@ -93,4 +111,15 @@ if(!interactive()) {
                         quote=F, row.names=F, sep='\t')
         }
     }
+    write.table(ret[["params"]], file.path(outdir, 'out.model_contigs.txt'),
+                quote=F, row.names=T, sep='\t')
+} else {
+    source('util.R')
+    infiles <- Sys.glob("~/Projects/tmp/otu_analysis/Alcanivorax_hongdengensis_A_11_3/fixed/*.bam")
+    infiles <- infiles[order(infiles)]
+    names(infiles) <- gsub('.bam$','',basename(infiles))
+    outdir <- dirname(infiles[1])
+    
+    refs <- get_references(infiles[1])
+    
 }
