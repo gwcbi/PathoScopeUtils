@@ -113,6 +113,10 @@ done
 
 
 ```bash
-Rscript Rscripts/plot_contig_counts.R
-Rscript Rscripts/analyze_contig_counts.R 
+for d in otu_analysis/*; do
+    echo "#-------- $d --------#"
+    Rscript analyze_contig_counts.R $d/*.bam
+    Rscript plot_contig_counts.R $d/*.bam
+    Rscript plot_coverage.R $d/*.bam
+done
 ```
