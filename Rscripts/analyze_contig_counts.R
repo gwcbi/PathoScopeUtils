@@ -19,7 +19,10 @@ analyze_contig_counts <- function(infiles,
     if(is.null(snames)) snames <- paste0('S', 1:length(infiles))
     names(infiles) <- snames
     
-    refs <- get_references(infiles[1])
+    for(f in infiles) {
+        refs <- get_references(f)
+        if(nrow(refs)>0) break
+    }
     cts.all <- contig_counts(infiles, refs)
     
     p1 <- cts.all %>%
@@ -115,11 +118,15 @@ if(!interactive()) {
                 quote=F, row.names=T, sep='\t')
 } else {
     source('util.R')
-    infiles <- Sys.glob("~/Projects/tmp/otu_analysis/Alcanivorax_hongdengensis_A_11_3/fixed/*.bam")
+    infiles <- Sys.glob("~/Projects/tmp/otu_analysis/Pseudomonas_aeruginosa_str_C_1433/*.bam")
     infiles <- infiles[order(infiles)]
     names(infiles) <- gsub('.bam$','',basename(infiles))
     outdir <- dirname(infiles[1])
     
-    refs <- get_references(infiles[1])
+    for(f in infiles) {
+        refs <- get_references(f)
+        if(nrow(refs)>0) break
+    }
+    cts.all <- contig_counts(infiles, refs)
     
 }

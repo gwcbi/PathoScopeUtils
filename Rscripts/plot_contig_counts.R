@@ -16,7 +16,10 @@ plot_contig_counts <- function(infiles){
     if(is.null(snames)) snames <- paste0('S', 1:length(infiles))
     names(infiles) <- snames
     
-    refs <- get_references(infiles[1])
+    for(f in infiles) {
+        refs <- get_references(f)
+        if(nrow(refs)>0) break
+    }
     cts.all <- contig_counts(infiles, refs)
     
     mytheme <- theme_bw() + 

@@ -149,7 +149,10 @@ if(!interactive()) {
     names(infiles) <- gsub('.bam$','',basename(infiles))
     outdir <- dirname(infiles[1])
     
-    refs <- get_references(infiles[1])
+    for(f in infiles) {
+        refs <- get_references(f)
+        if(nrow(refs)>0) break
+    }
     cov.df <- get_coverage(infiles)
 
     plots.contig <- plot_coverage_by_contig(cov.df, refs)
