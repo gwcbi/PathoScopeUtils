@@ -70,11 +70,10 @@ outliers_cookD <- function(models, d.cutoff=NULL) {
     outliers
 }
 
-param_table <- function(cts.sp, snames, models, outliers, nsamp.cutoff) {
-    is_outlier <- rowSums(outliers==1) > nsamp.cutoff | rowSums(outliers==-1) > nsamp.cutoff
+param_table <- function(cts.sp, snames, models, is_outlier, nsamp.cutoff) {
     d <- data.frame(
         adj.count=colSums(cts.sp[!is_outlier, snames]),
-        exp.count=sapply(models, function(fit) sum(sapply(predict(fit), function(x) max(0,x)))),
+        exp.count=round(sapply(models, function(fit) sum(sapply(predict(fit), function(x) max(0,x))))),
         Intercept=sapply(models, function(fit) fit$coefficients[['(Intercept)']]),
         slope=sapply(models, function(fit) fit$coefficients[['len']])
     )
@@ -121,14 +120,12 @@ model_contig_counts <- function(cts.all, refs,
     
     # Identify outliers across samples
     nsamp.cutoff <- pct.cutoff * length(snames)
-    
-    out.high <- cts.sp[rowSums(outliers==1) > nsamp.cutoff, c('display', 'len', snames)]
-    out.low <- cts.sp[rowSums(outliers==-1) > nsamp.cutoff, c('display', 'len', snames)]    
-    params <- param_table(cts.sp, snames, models, outliers, nsamp.cutoff)
+    is_outlier <- rowSums(outliers==1) > nsamp.cutoff # | rowSums(outliers==-1) > nsamp.cutoff
+    out.tab <- cts.sp[is_outlier, c('display', 'len', snames)]
+    params <- param_table(cts.sp, snames, models, is_outlier, nsamp.cutoff)
 
     list(
-        out.high=out.high,
-        out.low=out.low,
+        out.tab=out.tab,
         params=params
     )
 }
@@ -174,26 +171,17 @@ if(!interactive()) {
             write.table(file.path(outdir, 'out.countmodel.txt'),
                     quote=F, row.names=F, sep='\t')
         # Output tables with outliers
-        if(nrow(ret[["out.high"]]) == 0 & nrow(ret[["out.low"]]) == 0) {
+        if(nrow(ret[["out.tab"]]) == 0) {
             cat("Contig counts match with expectation 👍🏼\n")
         } else {
             # Print parameter table
             cat("Unusual contig coverage. Model parameters:\n")
             print(ret[["params"]])
-            if(nrow(ret[["out.high"]]) > 0) {
-                cat("Contigs with counts greater than expected:\n")
-                print(ret[["out.high"]])
-                ret[["out.high"]] %>% 
-                write.table(file.path(outdir, 'out.high_contigs.txt'),
+            cat("Contigs with counts greater than expected:\n")
+            print(ret[["out.tab"]])
+            ret[["out.tab"]] %>% 
+                write.table(file.path(outdir, 'out.outliers.txt'),
                             quote=F, row.names=F, sep='\t')
-            }
-            if(nrow(ret[["out.low"]]) > 0) {
-                cat("Contigs with counts lower than expected:")
-                print(ret[["out.low"]])
-                ret[["out.low"]] %>%
-                write.table(file.path(outdir, 'out.low_contigs.txt'),
-                            quote=F, row.names=F, sep='\t')
-            }
         }
     }
 } else {
