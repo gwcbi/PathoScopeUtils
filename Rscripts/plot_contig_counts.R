@@ -11,17 +11,7 @@ suppressWarnings(
 )
 
 
-plot_contig_counts <- function(infiles){
-    snames <- names(infiles)
-    if(is.null(snames)) snames <- paste0('S', 1:length(infiles))
-    names(infiles) <- snames
-    
-    for(f in infiles) {
-        refs <- get_references(f)
-        if(nrow(refs)>0) break
-    }
-    cts.all <- contig_counts(infiles, refs)
-    
+plot_contig_counts <- function(cts.long){
     mytheme <- theme_bw() + 
         theme(
             axis.text.x = element_text(angle=0, size=4),
@@ -33,10 +23,12 @@ plot_contig_counts <- function(infiles){
                             breaks=factor(refs$display)[seq(1,nrow(refs),length.out=10)],
                             labels=factor(refs$display)[seq(1,nrow(refs),length.out=10)]
     )
-    
-    # Plot contig lengths
-    p1 <- refs %>%
-        ggplot(aes(display, len / 1e6)) +
+
+    # Plot contig length        
+    p1 <- cts.long %>%
+        dplyr::filter(sample==cts.long$sample[1]) %>%
+        dplyr::mutate(len=len*1e-6) %>%
+        ggplot(aes(display, len)) +
         geom_col() +
         mytheme +
         xax +
@@ -44,7 +36,7 @@ plot_contig_counts <- function(infiles){
         ggtitle("Contig length (MB)")
     
     # Plot mapped reads
-    p2 <- cts.all %>%
+    p2 <- cts.long %>%
         ggplot(aes(display, mapped, fill=sample)) +
         geom_col(position="dodge") +
         mytheme +
@@ -53,7 +45,7 @@ plot_contig_counts <- function(infiles){
         ggtitle("Mapped reads")
     
     # Plot mapped reads per MB
-    p3 <- cts.all %>%
+    p3 <- cts.long %>%
         ggplot(aes(display, mapped / (len / 1e6), fill=sample)) +
         geom_col(position="dodge") +
         mytheme +
@@ -77,8 +69,16 @@ if(!interactive()) {
     infiles <- infiles[order(infiles)]
     names(infiles) <- gsub('.bam$','',basename(infiles))
     outdir <- dirname(infiles[1])
+
+    # Get references information
+    for(f in infiles) {
+        refs <- get_references(f)
+        if(nrow(refs)>0) break
+    }
+    # Get contig counts
+    cts.long <- contig_counts(infiles, refs)
     
-    ret <- plot_contig_counts(infiles)
+    ret <- plot_contig_counts(cts.long)
 
     plot.list <- lapply(ret, function(x) {
         x + theme(axis.title.x = element_blank())
@@ -92,4 +92,20 @@ if(!interactive()) {
                width=8.5, height=11, paper='letter')
     })
 
+} else {
+    source('util.R')
+    otu.dir <- '~/Projects/tmp/otu_analysis/Nocardia_brevicatena_NBRC_12119'
+    
+    infiles <- Sys.glob(file.path(otu.dir, "*.bam"))
+    infiles <- infiles[order(infiles)]
+    names(infiles) <- gsub('.bam$','',basename(infiles))
+    outdir <- dirname(infiles[1])
+    
+    for(f in infiles) {
+        refs <- get_references(f)
+        if(nrow(refs)>0) break
+    }
+
+    cts.long <- contig_counts(infiles, refs)
+    
 }
