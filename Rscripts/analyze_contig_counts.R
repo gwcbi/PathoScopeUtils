@@ -5,8 +5,10 @@ suppressWarnings(
         require(magrittr)
         require(dplyr)
         require(tidyr)
+        require(tibble)
         require(ggplot2)
         require(MASS)
+        require(robust)
     })
 )
 
@@ -20,10 +22,73 @@ plot_contig_scatter <- function(cts.all) {
         ggtitle("Mapped v. length")
 }
 
+fit_lm <- function(cts.sp, snames) {
+    models <- lapply(snames, function(sn){
+        f <- as.formula(paste0('`', sn, '` ~ len'))
+        suppressWarnings(lm(f, cts.sp))
+    })
+    names(models) <- snames
+    models
+}
+
+fit_rlm <- function(cts.sp, snames) {
+    models <- lapply(snames, function(sn){
+        f <- as.formula(paste0('`', sn, '` ~ len'))
+        suppressWarnings(MASS::rlm(f , cts.sp, maxit=100))
+    })
+    names(models) <- snames
+    models
+}
+
+fit_glmrob <- function(cts.sp, snames) {
+    models <- lapply(snames, function(sn){
+        f <- as.formula(paste0('`', sn, '` ~ len'))
+        robust::glmRob(f, family='poisson', data=cts.sp)
+    })
+    names(models) <- snames
+    models
+}
+
+outliers_robust <- function(models, weight.cutoff) {
+    # Detect outliers from robust regression using weights
+    val <- 'weights'
+    if("rlm" %in% class(models[[1]])) val <- 'w'
+    
+    # Detect outliers for each sample    
+    outliers <- lapply(models, function(fit){
+        sign((fit[[val]] < weight.cutoff) * fit$residuals)
+    }) %>% do.call(cbind, .)
+    outliers
+}
+
+outliers_cookD <- function(models, d.cutoff=NULL) {
+    # Detect outliers from regression using Cook's distance
+    if(is.null(d.cutoff)) d.cutoff <- (4 / length(models[[1]]$residuals))
+    outliers <- lapply(models, function(fit){
+        sign((cooks.distance(fit) > d.cutoff) * fit$residuals)
+    }) %>% do.call(cbind, .)
+    outliers
+}
+
+param_table <- function(cts.sp, snames, models, outliers, nsamp.cutoff) {
+    is_outlier <- rowSums(outliers==1) > nsamp.cutoff | rowSums(outliers==-1) > nsamp.cutoff
+    d <- data.frame(
+        adj.count=colSums(cts.sp[!is_outlier, snames]),
+        exp.count=sapply(models, function(fit) sum(sapply(predict(fit), function(x) max(0,x)))),
+        Intercept=sapply(models, function(fit) fit$coefficients[['(Intercept)']]),
+        slope=sapply(models, function(fit) fit$coefficients[['len']])
+    )
+    row.names(d) <- snames
+    d
+}
+
 model_contig_counts <- function(cts.all, refs,
                                 weight.cutoff=1e-2,
-                                pct.cutoff=0
+                                pct.cutoff=0,
+                                method=c("glmRob", "rlm", "lm")
 ){
+    method <- match.arg(method)
+    
     # Make spread data frame
     cts.sp <- cts.all %>%
         dplyr::select(chrom, len, display, mapped, sample) %>%
@@ -38,49 +103,28 @@ model_contig_counts <- function(cts.all, refs,
             params=data.frame()
         ))
     }
+    switch(method,
+           lm = {
+               #--- Fit a Linear Model ---#
+               models <- fit_lm(cts.sp, snames)
+               outliers <- outliers_cookD(models)
+           }, rlm = {
+               #--- Fit a linear model by robust regression ---#
+               models <- fit_rlm(cts.sp, snames)
+               outliers <- outliers_robust(models, weight.cutoff)
+           }, glmRob = {
+               #--- Fit a Robust Generalized Linear Model ---#
+               models <- fit_glmrob(cts.sp, snames)
+               outliers <- outliers_robust(models, weight.cutoff)
+           }
+    )
     
-    # Fit OLS regression
-    # models.lm <- lapply(snames, function(sn){
-    #     f <- as.formula(paste0('`', sn, '` ~ len'))
-    #     lm(f , cts.sp)
-    # })
-    # 
-    # Detect outliers using Cook's distance
-    # cutoff.cd <- 4 / nrow(cts.sp)
-    # outliers.cd <- lapply(models.lm, function(fit){
-    #     sign((cooks.distance(fit) > cutoff.cd) * fit$residuals)
-    # }) %>% do.call(cbind, .)
-
-    # Fit robust regression
-    models <- lapply(snames, function(sn){
-        f <- as.formula(paste0('`', sn, '` ~ len'))
-        rlm(f , cts.sp, maxit=100)
-    })
-    # models.w <- lapply(models, function(fit) fit$w) %>% do.call(cbind, .)
-    
-    # Detect outliers for each sample
-    outliers <- lapply(models, function(fit){
-        # sign((fit$w < quantile(fit$w, 0.005)) * fit$residuals)
-        sign((fit$w < weight.cutoff) * fit$residuals)
-    }) %>% do.call(cbind, .)
-
-    # Possible outliers
+    # Identify outliers across samples
     nsamp.cutoff <- pct.cutoff * length(snames)
-    out.high <- cts.sp[rowSums(outliers==1) > nsamp.cutoff,]
-    out.low <- cts.sp[rowSums(outliers==-1) > nsamp.cutoff,]
-
-    # Model params
-    params <- lapply(models, function(fit){
-        predicted <- predict(fit, data.frame(len=sum(refs$len)), interval='confidence')
-        c(fit$coefficients, predicted)
-    }) %>% do.call(rbind, .) %>%
-    data.frame(., row.names=snames)
-    names(params) <- c('(Intercept)', 'len', 'fit', 'lwr', 'upr')
     
-    # Outliers removed
-    cts.noout <- cts.sp %>%
-        dplyr::filter(!chrom %in% out.high$chrom)
-    params$out.rm <- sapply(snames, function(n) sum(cts.noout[,n]))
+    out.high <- cts.sp[rowSums(outliers==1) > nsamp.cutoff, c('display', 'len', snames)]
+    out.low <- cts.sp[rowSums(outliers==-1) > nsamp.cutoff, c('display', 'len', snames)]    
+    params <- param_table(cts.sp, snames, models, outliers, nsamp.cutoff)
 
     list(
         out.high=out.high,
@@ -126,36 +170,36 @@ if(!interactive()) {
         }
     } else {
         # Write parameter table
-        write.table(ret[["params"]], file.path(outdir, 'out.model_contigs.txt'),
-                    quote=F, row.names=T, sep='\t')
-    
+        ret[['params']] %>% tibble::rownames_to_column("sample") %>%
+            write.table(file.path(outdir, 'out.countmodel.txt'),
+                    quote=F, row.names=F, sep='\t')
         # Output tables with outliers
         if(nrow(ret[["out.high"]]) == 0 & nrow(ret[["out.low"]]) == 0) {
             cat("Contig counts match with expectation 👍🏼\n")
         } else {
+            # Print parameter table
+            cat("Unusual contig coverage. Model parameters:\n")
+            print(ret[["params"]])
             if(nrow(ret[["out.high"]]) > 0) {
                 cat("Contigs with counts greater than expected:\n")
-                t <- ret[["out.high"]] %>%
-                    dplyr::select(display, len, names(infiles))
-                print(t)
-                write.table(t, file.path(outdir, 'out.high_contigs.txt'),
+                print(ret[["out.high"]])
+                ret[["out.high"]] %>% 
+                write.table(file.path(outdir, 'out.high_contigs.txt'),
                             quote=F, row.names=F, sep='\t')
             }
             if(nrow(ret[["out.low"]]) > 0) {
                 cat("Contigs with counts lower than expected:")
-                t <- ret[["out.low"]] %>%
-                    dplyr::select(display, len, names(infiles))
-                print(t)
-                write.table(t, file.path(outdir, 'out.high_contigs.txt'),
+                print(ret[["out.low"]])
+                ret[["out.low"]] %>%
+                write.table(file.path(outdir, 'out.low_contigs.txt'),
                             quote=F, row.names=F, sep='\t')
             }
         }
     }
 } else {
     source('util.R')
-    otu.dir <- '~/Projects/tmp/otu_analysis/Georgenia_sp_SUBG003'
+    otu.dir <- '~/Projects/tmp/otu_analysis/Nocardia_brevicatena_NBRC_12119'
 
-    
     infiles <- Sys.glob(file.path(otu.dir, "*.bam"))
     infiles <- infiles[order(infiles)]
     names(infiles) <- gsub('.bam$','',basename(infiles))
@@ -167,47 +211,6 @@ if(!interactive()) {
     }
     cts.all <- contig_counts(infiles, refs)
 
-    weight.cutoff <- 1e-2
-    pct.cutoff <- 1 / length(infiles)
-    
-    # Make spread data frame
-    cts.sp <- cts.all %>%
-        dplyr::select(chrom, len, display, mapped, sample) %>%
-        tidyr::spread(sample, mapped)
-    
-    snames <- names(cts.sp)[4:ncol(cts.sp)]
-    
-    # Fit OLS regression
-    models.lm <- lapply(snames, function(sn){
-        f <- as.formula(paste0('`', sn, '` ~ len'))
-        lm(f , cts.sp)
-    })
-    
-    # Fit robust regression
-    models.rlm <- lapply(snames, function(sn){
-        f <- as.formula(paste0('`', sn, '` ~ len'))
-        rlm(f , cts.sp, maxit=100)
-    })
-    
-    utoff <- 4 / (nrow(cts.sp))
-    # Detect outliers for each sample
-    outliers.cd <- lapply(models.lm, function(fit){
-        cooks.distance(fit) > cd.cutoff
-        # sign((fit$w < weight.cutoff) * fit$residuals)
-    }) %>% do.call(cbind, .)
-    cts.sp[rowSums(outliers.cd) > nsamp.cutoff,]
-
-    # Detect outliers for each sample
-    outliers <- lapply(models, function(fit){
-        sign((fit$w < weight.cutoff) * fit$residuals)
-    }) %>% do.call(cbind, .)
-
-    models.w[rowSums(outliers==1) > nsamp.cutoff,]
-    # Possible outliers
-    nsamp.cutoff <- pct.cutoff * length(snames)
-    out.high <- cts.sp[rowSums(outliers==1) > nsamp.cutoff,]
-    out.low <- cts.sp[rowSums(outliers==-1) > nsamp.cutoff,]
-
-    sapply(models, function(fit) fit$w[which(rowSums(outliers==1) > nsamp.cutoff)])
-    outliers[rowSums(outliers==1) > nsamp.cutoff,]
+    # Model contig counts
+    ret <- model_contig_counts(cts.all, refs, pct.cutoff=(1/length(infiles)))
 }
