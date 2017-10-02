@@ -116,7 +116,15 @@ done
 for d in otu_analysis/*; do
     echo "#-------- $d --------#"
     Rscript analyze_contig_counts.R $d/*.bam
+done
+
+for d in otu_analysis/*; do
+    echo "#-------- $d --------#"
     Rscript plot_contig_counts.R $d/*.bam
+done
+
+for d in otu_analysis/*; do
+    echo "#-------- $d --------#"
     Rscript plot_coverage.R $d/*.bam
 done
 ```
