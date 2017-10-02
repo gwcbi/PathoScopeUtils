@@ -23,8 +23,13 @@ get_references <- function(bf,
     }))
     ret <- data.frame(chrom=ret[,1], len=as.numeric(ret[,2]), stringsAsFactors=F)
     ret$display <- display.fun(ret$chrom)
-    ret <- ret[order(-ret$len),]    
-    ret$display <- factor(ret$display, levels=ret$display)
+    ret <- ret[order(-ret$len),]
+    if(length(unique(ret$display)) == length(ret$display)) {
+        ret$display <- factor(ret$display, levels=ret$display)
+    } else {
+        ret$display <- paste(ret$display, 1:nrow(ret), sep='.')
+        ret$display <- factor(ret$display, levels=ret$display)
+    }
     ret
 }
 
