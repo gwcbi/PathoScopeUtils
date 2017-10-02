@@ -22,8 +22,8 @@ get_references <- function(bf,
         )
     }))
     ret <- data.frame(chrom=ret[,1], len=as.numeric(ret[,2]), stringsAsFactors=F)
-    ret <- ret[order(-ret$len),]
     ret$display <- display.fun(ret$chrom)
+    ret <- ret[order(-ret$len),]    
     ret$display <- factor(ret$display, levels=ret$display)
     ret
 }
