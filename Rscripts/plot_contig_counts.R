@@ -71,10 +71,8 @@ if(!interactive()) {
     outdir <- dirname(infiles[1])
 
     # Get references information
-    for(f in infiles) {
-        refs <- get_references(f)
-        if(nrow(refs)>0) break
-    }
+    refs <- get_references(infiles)
+    
     # Get contig counts
     cts.long <- contig_counts(infiles, refs)
     
@@ -94,17 +92,15 @@ if(!interactive()) {
 
 } else {
     source('util.R')
-    otu.dir <- '~/Projects/tmp/otu_analysis/Nocardia_brevicatena_NBRC_12119'
+    otu.dir <- '~/Projects/cf_hahn/otu_analysis/Nocardia_brevicatena_NBRC_12119'
     
     infiles <- Sys.glob(file.path(otu.dir, "*.bam"))
     infiles <- infiles[order(infiles)]
     names(infiles) <- gsub('.bam$','',basename(infiles))
     outdir <- dirname(infiles[1])
     
-    for(f in infiles) {
-        refs <- get_references(f)
-        if(nrow(refs)>0) break
-    }
+    # Get references information
+    refs <- get_references(infiles)
 
     cts.long <- contig_counts(infiles, refs)
     

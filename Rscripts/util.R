@@ -7,31 +7,36 @@ suppressWarnings(
 )
 
 #' Get references from BAM file
-#' @param bf Path to BAM file
+#' @param infiles Named vector of BAM files.
 #' @return Data frame with reference names, lengths, and display names
-get_references <- function(bf,
+get_references <- function(infiles,
                            display.fun=function(.x) gsub('^.*ref\\|(.+)\\|.*$', '\\1', .x)
                            ) {
-    h <- readLines(con <- pipe(paste0('samtools view -H ', bf)))
-    close(con)
-    h <- h[grep('^@SQ', h)]
-    ret <- do.call(rbind, lapply(strsplit(h,'\t'), function(s){
-        s <- unlist(s)
-        c(substr(s[grep('^SN', s)], 4, 100000),
-          as.numeric(substr(s[grep('^LN', s)], 4, 100000))
-        )
-    }))
-    ret <- data.frame(chrom=ret[,1], len=as.numeric(ret[,2]), stringsAsFactors=F)
-    ret$display <- display.fun(ret$chrom)
-    ret <- ret[order(-ret$len),]
-    if(length(unique(ret$display)) == length(ret$display)) {
-        ret$display <- factor(ret$display, levels=ret$display)
-    } else {
-        ret$display <- paste(ret$display, 1:nrow(ret), sep='.')
-        ret$display <- factor(ret$display, levels=ret$display)
+    for (bf in infiles) {
+        h <- readLines(con <- pipe(paste0('samtools view -H ', bf)))
+        close(con)        
+        if(sum(grep('^@SQ', h)) == 0) next
+        h <- h[grep('^@SQ', h)]
+        ret <- do.call(rbind, lapply(strsplit(h,'\t'), function(s){
+            s <- unlist(s)
+            c(substr(s[grep('^SN', s)], 4, 100000),
+              as.numeric(substr(s[grep('^LN', s)], 4, 100000))
+            )
+        }))
+        ret <- data.frame(chrom=ret[,1], len=as.numeric(ret[,2]), stringsAsFactors=F)
+        ret$display <- display.fun(ret$chrom)
+        ret <- ret[order(-ret$len),]
+        if(length(unique(ret$display)) == length(ret$display)) {
+            ret$display <- factor(ret$display, levels=ret$display)
+        } else {
+            ret$display <- paste(ret$display, 1:nrow(ret), sep='.')
+            ret$display <- factor(ret$display, levels=ret$display)
+        }
+        if(nrow(ret) > 0) return(ret)
     }
-    ret
+    return(data.frame(chrom="", len=0, display=""))
 }
+
 
 #' Get contig counts from BAM files
 #' 
@@ -40,7 +45,7 @@ get_references <- function(bf,
 #' @param infiles Named vector of BAM files.
 #' @param refs Reference table from get_references
 #' @return Data frame with number of reads mapped to all contigs
-contig_counts <- function(infiles, refs) {
+contig_counts <- function(infiles, refs=get_references(infiles)) {
     snames <- names(infiles)
     if(is.null(snames)) snames <- paste0('S', 1:length(infiles))
     names(infiles) <- snames
@@ -56,6 +61,34 @@ contig_counts <- function(infiles, refs) {
         df
     }) %>% do.call(rbind, .)
 }
+
+#' Get coverage depth from BAM files
+#' 
+#' Calls samtools depth to get the number of reads mapping to each position.
+#' 
+#' @param infiles Named vector of BAM files.
+#' @return Data frame with chromosome, position, and depth in each sample.
+samtools_depth <- function(infiles) {
+    # samtools depth will return nothing if there are no reads in the first 
+    # file. Order the input BAMs so that the first one has reads
+    ccts <- contig_counts(infiles, refs <- get_references(infiles)) %>%
+        dplyr::select(chrom, len, display, mapped, sample) %>%
+        tidyr::spread(sample, mapped) %>%
+        dplyr::select(names(infiles)) %>% colSums
+    if(max(ccts) == 0) {
+        warning("No samples have counts.")
+        return(data.frame(chrom="", pos=1))
+    }
+    neworder <- infiles[order(-ccts)]
+    cmd <- paste0('samtools depth ', paste(neworder, collapse=' '))
+    cov.df <- read.table(con <- pipe(cmd), sep='\t', stringsAsFactors=F)
+    names(cov.df) <- c('chrom', 'pos', names(neworder))
+    
+    # Put back in infile order
+    cov.df <- cov.df[, c('chrom', 'pos', names(infiles))]
+    cov.df
+}
+
 
 #' Share legends
 marrangeGrob_sharedlegend <- function (grobs, ncol, nrow, ..., 

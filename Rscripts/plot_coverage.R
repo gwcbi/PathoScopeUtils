@@ -57,7 +57,7 @@ plotbins.chrom <- function(cov.bins) {
         dplyr::select(chrom, pos, snames) %>%
         tidyr::gather(key='sample', value='cov', -c(chrom, pos)) %>%
         ggplot(aes(pos, cov, color=sample, fill=sample)) +
-        geom_area(alpha=.4) + 
+        geom_area(alpha=.6) + 
         xlim(chromS, chromE) + theme_bw()
 }
 
@@ -106,18 +106,6 @@ plot_coverage_by_contig <- function(cov.df, refs) {
     })
     
     marrangeGrob_sharedlegend(cbins.plots, legend=1, nrow=2, ncol=1, top=NULL) 
-    # Plot concatenated contigs
-}
-
-get_coverage <- function(infiles) {
-    snames <- names(infiles)
-    if(is.null(snames)) snames <- paste0('S', 1:length(infiles))
-    names(infiles) <- snames
-    
-    cmd <- paste0('samtools depth ', paste(infiles, collapse=' '))
-    cov.df <- read.table(pipe(cmd), sep='\t', stringsAsFactors=F)
-    names(cov.df) <- c('chrom', 'pos', names(infiles)) 
-    cov.df
 }
 
 if(!interactive()) {
@@ -130,8 +118,10 @@ if(!interactive()) {
     names(infiles) <- gsub('.bam$','',basename(infiles))
     outdir <- dirname(infiles[1])
     
-    refs <- get_references(infiles[1])
-    cov.df <- get_coverage(infiles)
+    # Get references information
+    refs <- get_references(infiles)
+    
+    cov.df <- samtools_depth(infiles)
     
     plots.contig <- plot_coverage_by_contig(cov.df, refs)
     ggsave(file.path(outdir, 'out.coverage_contig.pdf'), plots.contig,
@@ -144,87 +134,16 @@ if(!interactive()) {
     
 } else {
     source('util.R')
-    infiles <- Sys.glob("~/Projects/tmp/otu_analysis/Alcanivorax_hongdengensis_A_11_3/fixed/*.bam")
+    otu.dir <- '~/Projects/cf_hahn/otu_analysis/Pseudomonas_aeruginosa_3579'
+    
+    infiles <- Sys.glob(file.path(otu.dir, "*.bam"))
     infiles <- infiles[order(infiles)]
     names(infiles) <- gsub('.bam$','',basename(infiles))
     outdir <- dirname(infiles[1])
     
-    for(f in infiles) {
-        refs <- get_references(f)
-        if(nrow(refs)>0) break
-    }
-    cov.df <- get_coverage(infiles)
+    # Get references information
+    refs <- get_references(infiles)
 
-    plots.contig <- plot_coverage_by_contig(cov.df, refs)
-    plots.contig
-    
-    plots.genome <- plot_coverage_by_genome(cov.df, refs)
-    plots.genome
+    cov.df <- samtools_depth(infiles)
+
 }
-
-
-# infiles <- Sys.glob('otu_analysis/Burkholderia_cenocepacia_H111/*.pri.bam')
-# infiles <- infiles[order(infiles)]
-# snames <- gsub('.bam', '', basename(infiles))
-# names(infiles) <- snames
-# 
-# outdir <- dirname(infiles[1])
-# 
-# # Read reference information from SAM header
-# refs <- get_references(infiles[1])
-# 
-# 
-# 
-# 
-# 
-# 
-# # pgrob <- gridExtra::marrangeGrob(cov.plots, nrow=3, ncol=2)
-# pgrob <- marrangeGrob_sharedlegend(cbins.plots, nrow=2, ncol=1)
-# ggsave(file.path(outdir, 'out.coverage.pdf'), width=11, height=8.5, pgrob)
-# 
-# 
-# ### ggsave(file.path(outdir, 'out.coverage.pdf'), width=11, height=8.5, pgrob)
-# 
-# 
-# 
-# 
-# 
-# marrage_grob_shared_legend <- function(..., nrow = 1, ncol = length(list(...)), position = c("bottom", "right")) {
-#     
-#     plots <- list(...)
-#     position <- match.arg(position)
-#     g <- ggplotGrob(plots[[1]] + theme(legend.position = position))$grobs
-#     legend <- g[[which(sapply(g, function(x) x$name) == "guide-box")]]
-#     lheight <- sum(legend$height)
-#     lwidth <- sum(legend$height)
-#     gl <- lapply(plots, function(x) x + theme(legend.position = "none"))
-#     gl <- c(gl, nrow = nrow, ncol = ncol)
-#     
-#     perpage <- nrow * ncol
-#     lapply()
-#     combined <- switch(position,
-#                        "bottom" = marrangeGrob(do.call(marrangeGrob, gl),
-#                                               legend,
-#                                               ncol = 1,
-#                                               heights = unit.c(unit(1, "npc") - lheight, lheight)),
-#                        "right" = arrangeGrob(do.call(arrangeGrob, gl),
-#                                              legend,
-#                                              ncol = 2,
-#                                              widths = unit.c(unit(1, "npc") - lwidth, lwidth)))
-#     grid.newpage()
-#     grid.draw(combined)
-#     # combined
-# }
-# 
-# marrage_grob_shared_legend()
-# 
-# 
-# pgrob <- gridExtra::marrangeGrob(cov.plots, nrow=3, ncol=2)
-# ggsave(file.path(outdir, 'out.coverage.pdf'), width=11, height=8.5, pgrob)
-# 
-# 
-# 
-# z <- grid_arrange_shared_legend(cbins.plots[[1]], cbins.plots[[2]], cbins.plots[[3]], cbins.plots[[1]],
-#                                 cbins.plots[[1]], cbins.plots[[2]], cbins.plots[[3]], cbins.plots[[1]], nrow=3, ncol=2)
-#         
-# 
