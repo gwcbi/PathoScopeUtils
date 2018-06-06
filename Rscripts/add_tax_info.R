@@ -76,7 +76,7 @@ uid2lineage <- function(x,
 
 add_tax_info <- function(f) {
     report <- read.table(f, stringsAsFactors=F, header=T, sep='\t', skip=1)
-    taxids <- gsub('ti\\|(\\d+)', '\\1', report$Genome, perl=T)
+    taxids <- gsub('ti\\|(\\d+).*', '\\1', report$Genome, perl=T)
     taxtable <- uid2lineage(taxids)
     taxtable[is.na(taxtable)] <- ''
     stopifnot(all(taxids == taxtable$ID))
